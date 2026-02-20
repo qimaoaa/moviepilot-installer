@@ -196,8 +196,51 @@ update_mp() {
     echo ">>> 重新启动服务..."
     systemctl daemon-reload
     systemctl restart $SERVICE_NAME
-    echo ">>> 更新完成！"
+    echo \">>> 更新完成！\"
     sleep 2
+}
+
+modify_config() {
+    echo \">>> 正在修改 MoviePilot 运行配置...\"
+    if [ ! -f \"$CONFIG_FILE\" ]; then
+        echo \"❌ 未找到配置文件 $CONFIG_FILE，请先执行安装！\"
+        sleep 2
+        return 1
+    fi
+
+    # 加载当前配置
+    source \"$CONFIG_FILE\"
+
+    echo \"当前监听地址: $LISTEN_ADDR\"
+    read -p \"请输入新监听地址 (直接回车保持不变): \" NEW_ADDR
+    LISTEN_ADDR=${NEW_ADDR:-$LISTEN_ADDR}
+
+    echo \"当前前端端口: $FRONTEND_PORT\"
+    read -p \"请输入新前端端口 (直接回车保持不变): \" NEW_FE_PORT
+    FRONTEND_PORT=${NEW_FE_PORT:-$FRONTEND_PORT}
+
+    echo \"当前后端端口: $BACKEND_PORT\"
+    read -p \"请输入新后端端口 (直接回车保持不变): \" NEW_BE_PORT
+    BACKEND_PORT=${NEW_BE_PORT:-$BACKEND_PORT}
+
+    # 保存新配置
+    cat > \"$CONFIG_FILE\" <<EOF
+LISTEN_ADDR=$LISTEN_ADDR
+FRONTEND_PORT=$FRONTEND_PORT
+BACKEND_PORT=$BACKEND_PORT
+EOF
+
+    echo \">>> 配置已保存，正在刷新服务文件...\"
+    generate_startup_script
+    generate_systemd_service
+
+    echo \">>> 正在重启服务以应用新配置...\"
+    systemctl daemon-reload
+    systemctl restart $SERVICE_NAME
+    echo \">>> 配置修改成功！\"
+    echo \">>> 新前端地址: http://$LISTEN_ADDR:$FRONTEND_PORT\"
+    echo \">>> 新后端地址: http://$LISTEN_ADDR:$BACKEND_PORT\"
+    sleep 3
 }
 
 integrate_files() {
@@ -354,24 +397,26 @@ while true; do
     echo "       MoviePilot 管理脚本 (单服务版)"
     echo "=============================================="
     echo "  1. 安装 MoviePilot"
-    echo "  2. 更新 MoviePilot"
-    echo "  3. 卸载 MoviePilot"
-    echo "  4. 查看运行状态"
-    echo "  5. 查看实时日志"
-    echo "  6. 重启服务"
-    echo "  7. 系统诊断 (检查端口和环境)"
-    echo "  0. 退出"
-    echo "=============================================="
-    read -p "请输入选项 [0-7]: " choice
+    echo \"  2. 更新 MoviePilot\"
+    echo \"  3. 卸载 MoviePilot\"
+    echo \"  4. 修改运行配置 (端口/地址)\"
+    echo \"  5. 查看运行状态\"
+    echo \"  6. 查看实时日志\"
+    echo \"  7. 重启服务\"
+    echo \"  8. 系统诊断 (检查端口和环境)\"
+    echo \"  0. 退出\"
+    echo \"==============================================\"
+    read -p \"请输入选项 [0-8]: \" choice
     case $choice in
         1) install_mp ;;
         2) update_mp ;;
         3) uninstall_mp ;;
-        4) status_mp ;;
-        5) logs_mp ;;
-        6) restart_mp ;;
-        7) diagnose_mp ;;
+        4) modify_config ;;
+        5) status_mp ;;
+        6) logs_mp ;;
+        7) restart_mp ;;
+        8) diagnose_mp ;;
         0) exit 0 ;;
-        *) echo "无效选项!" && sleep 1 ;;
+        *) echo \"无效选项!\" && sleep 1 ;;
     esac
 done
