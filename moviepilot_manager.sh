@@ -255,10 +255,28 @@ integrate_files() {
 }
 
 fix_frontend_esm() {
-    # 修复 service.js 在 ESM 模式下的兼容性问题
-    if [ -f "$INSTALL_DIR/MoviePilot-Frontend/dist/service.js" ]; then
-        echo ">>> 修复前端 CommonJS 兼容性..."
-        mv -f "$INSTALL_DIR/MoviePilot-Frontend/dist/service.js" "$INSTALL_DIR/MoviePilot-Frontend/dist/service.cjs"
+    # 修复 service.js 在 ESM 模式下的兼容性问题，并强制其遵循监听地址
+    local JS_FILE=\"$INSTALL_DIR/MoviePilot-Frontend/dist/service.js\"
+    local CJS_FILE=\"$INSTALL_DIR/MoviePilot-Frontend/dist/service.cjs\"
+    local TARGET_FILE=\"\"
+
+    if [ -f \"$JS_FILE\" ]; then
+        TARGET_FILE=\"$JS_FILE\"
+    elif [ -f \"$CJS_FILE\" ]; then
+        TARGET_FILE=\"$CJS_FILE\"
+    fi
+
+    if [ -n \"$TARGET_FILE\" ]; then
+        echo \">>> 正在加固前端监听逻辑...\"
+        # 1. 允许通过环境变量 HOST 控制监听地址
+        sed -i \"s/const port = process.env.NGINX_PORT || 3000/const port = process.env.NGINX_PORT || 3000; const host = process.env.HOST || '0.0.0.0'/g\" \"$TARGET_FILE\"
+        # 2. 修改 listen 调用，显式传入 host 参数
+        sed -i \"s/app.listen(port, ()/app.listen(port, host, ()/g\" \"$TARGET_FILE\"
+        
+        # 如果是原文件，执行改名
+        if [ \"$TARGET_FILE\" == \"$JS_FILE\" ]; then
+            mv -f \"$JS_FILE\" \"$CJS_FILE\"
+        fi
     fi
 }
 
