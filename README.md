@@ -8,7 +8,7 @@
 你可以直接使用以下单行命令下载并运行该管理脚本：
 
 ```bash
-bash <(curl -s -H 'Cache-Control: no-cache' "https://raw.githubusercontent.com/qimaoaa/moviepilot-installer/main/moviepilot_manager.sh?t=$(date +%s)")
+bash <(curl -s https://raw.githubusercontent.com/qimaoaa/moviepilot-installer/refs/heads/main/moviepilot_manager.sh)
 ```
 
 ## 功能特点
