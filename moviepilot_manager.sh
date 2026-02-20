@@ -58,10 +58,30 @@ install_mp() {
         run_task ">>> 准备自动安装 Git..." "apt-get update && apt-get install -y git" || return 1
     fi
     
-    if ! command -v python3 &> /dev/null || ! python3 -m venv -h &> /dev/null; then
-        run_task ">>> 准备自动补全 Python 3 及其 venv 模块..." "apt-get update && apt-get install -y curl python3 python3-venv python3-dev" || return 1
+    # 针对 Debian 13 (Trixie) 缺少 Python 3.12 的特殊处理
+    local PYTHON_BASE=""
+    if command -v python3.12 &> /dev/null; then
+        PYTHON_BASE="python3.12"
+        echo "[✓] 检测到系统已安装 Python 3.12"
     else
-        echo "[✓] 检测到 Python 3 及其 venv 模块已安装"
+        echo "[!] 系统未发现 Python 3.12 (Debian 13 默认为 3.13)"
+        local PY312_DIR="$INSTALL_DIR/python312_bin"
+        local ARCH=$(uname -m)
+        local PY_URL=""
+        if [ "$ARCH" == "x86_64" ]; then
+            PY_URL="https://github.com/indygreg/python-build-standalone/releases/download/20250212/cpython-3.12.9+20250212-x86_64-unknown-linux-gnu-install_only.tar.gz"
+        elif [ "$ARCH" == "aarch64" ]; then
+            PY_URL="https://github.com/indygreg/python-build-standalone/releases/download/20250212/cpython-3.12.9+20250212-aarch64-unknown-linux-gnu-install_only.tar.gz"
+        else
+            echo "❌ 不支持的架构: $ARCH，无法自动为 Debian 13 提供 Python 3.12 补丁。"
+            return 1
+        fi
+
+        if [ ! -f "$PY312_DIR/bin/python3" ]; then
+            run_task ">>> 正在下载 Python 3.12 独立运行环境 ($ARCH 版)..." "mkdir -p $PY312_DIR && cd $PY312_DIR && curl -L $PY_URL | tar -xz --strip-components=1" || return 1
+        fi
+        PYTHON_BASE="$PY312_DIR/bin/python3"
+        echo "[✓] 已配置 Python 3.12 独立环境"
     fi
 
     local NODE_INSTALLED=false
@@ -113,11 +133,19 @@ EOF
     cp -rf MoviePilot-Resources/resources.v2/* MoviePilot/app/helper/ 2>/dev/null || true
 
     # 4. 安装依赖
+    # 检查现有的 venv 是否是 3.12
+    if [ -d "$INSTALL_DIR/MoviePilot/venv" ]; then
+        local CURRENT_VENV_VER=$("$INSTALL_DIR/MoviePilot/venv/bin/python" --version 2>&1 | grep -oE '3\.[0-9]+')
+        if [ "$CURRENT_VENV_VER" != "3.12" ]; then
+            echo "[!] 检测到旧的虚拟环境版本为 $CURRENT_VENV_VER，正在清理并重建为 3.12..."
+            rm -rf "$INSTALL_DIR/MoviePilot/venv"
+        fi
+    fi
+
     if [ ! -d "$INSTALL_DIR/MoviePilot/venv" ]; then
-        run_task ">>> 正在创建 Python 虚拟环境..." "cd '$INSTALL_DIR/MoviePilot' && python3 -m venv venv" || return 1
+        run_task ">>> 正在创建 Python 虚拟环境 (使用 3.12)..." "cd '$INSTALL_DIR/MoviePilot' && $PYTHON_BASE -m venv venv" || return 1
     fi
     
-    # 升级虚拟环境内的 pip 后再安装依赖
     run_task ">>> 正在安装后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && ./venv/bin/python3 -m pip install --upgrade pip && ./venv/bin/python3 -m pip install -r requirements.txt" || return 1
 
     run_task ">>> 正在安装前端依赖..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install" || return 1
