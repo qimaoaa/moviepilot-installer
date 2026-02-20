@@ -98,6 +98,9 @@ EOF
     if [ ! -d "MoviePilot-Frontend" ]; then
         run_task ">>> 克隆前端项目 MoviePilot-Frontend..." "git clone https://github.com/jxxghp/MoviePilot-Frontend.git" || return 1
     fi
+    if [ ! -d "MoviePilot-Resources" ]; then
+        run_task ">>> 克隆资源项目 MoviePilot-Resources..." "git clone https://github.com/jxxghp/MoviePilot-Resources.git" || return 1
+    fi
 
     # 3. 文件整合
     echo ">>> 正在整合文件..."
@@ -107,7 +110,7 @@ EOF
 
     cp -rf MoviePilot-Plugins/plugins/* MoviePilot/app/plugins/ 2>/dev/null || true
     cp -rf MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
-    cp -rf MoviePilot-Plugins/resources/* MoviePilot/app/helper/ 2>/dev/null || true
+    cp -rf MoviePilot-Resources/resources/* MoviePilot/app/helper/ 2>/dev/null || true
 
     # 4. 安装依赖
     if [ ! -d "$INSTALL_DIR/MoviePilot/venv" ]; then
@@ -198,11 +201,14 @@ update_mp() {
     if [ -d "MoviePilot-Frontend" ]; then
         run_task ">>> 拉取前端代码" "cd MoviePilot-Frontend && git pull" || return 1
     fi
+    if [ -d "MoviePilot-Resources" ]; then
+        run_task ">>> 拉取资源代码" "cd MoviePilot-Resources && git pull" || return 1
+    fi
 
     echo ">>> 重新整合插件与资源..."
     cp -rf MoviePilot-Plugins/plugins/* MoviePilot/app/plugins/ 2>/dev/null || true
     cp -rf MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
-    cp -rf MoviePilot-Plugins/resources/* MoviePilot/app/helper/ 2>/dev/null || true
+    cp -rf MoviePilot-Resources/resources/* MoviePilot/app/helper/ 2>/dev/null || true
 
     run_task ">>> 更新后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && ./venv/bin/python3 -m pip install -r requirements.txt" || return 1
     run_task ">>> 更新前端依赖..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install" || return 1
