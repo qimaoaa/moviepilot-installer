@@ -193,16 +193,16 @@ update_mp() {
     cd "$INSTALL_DIR"
     
     if [ -d "MoviePilot" ]; then
-        run_task ">>> 拉取后端代码" "cd MoviePilot && git pull" || return 1
+        run_task ">>> 拉取后端代码" "cd MoviePilot && git fetch --all && git reset --hard origin/main" || return 1
     fi
     if [ -d "MoviePilot-Plugins" ]; then
-        run_task ">>> 拉取插件代码" "cd MoviePilot-Plugins && git pull" || return 1
+        run_task ">>> 拉取插件代码" "cd MoviePilot-Plugins && git fetch --all && git reset --hard origin/main" || return 1
     fi
     if [ -d "MoviePilot-Frontend" ]; then
-        run_task ">>> 拉取前端代码" "cd MoviePilot-Frontend && git pull" || return 1
+        run_task ">>> 拉取前端代码" "cd MoviePilot-Frontend && git fetch --all && git reset --hard origin/main" || return 1
     fi
     if [ -d "MoviePilot-Resources" ]; then
-        run_task ">>> 拉取资源代码" "cd MoviePilot-Resources && git pull" || return 1
+        run_task ">>> 拉取资源代码" "cd MoviePilot-Resources && git fetch --all && git reset --hard origin/main" || return 1
     fi
 
     echo ">>> 重新整合插件与资源..."
