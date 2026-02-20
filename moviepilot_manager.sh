@@ -31,7 +31,6 @@ run_task() {
                     echo ">>> 返回主菜单..."
                     sleep 1
                     show_menu
-                    # show_menu 内部有死循环或退出机制，但这里为了安全起见退出当前函数并中断上一层
                     return 1
                     ;;
                 *)
@@ -85,7 +84,7 @@ install_mp() {
     
     # 1. 环境检测与自动安装
     if ! command -v python3 &> /dev/null; then
-        run_task ">>> 准备自动安装 Python 3..." "apt-get update; apt-get install -y curl && { if grep -qi 'ubuntu' /etc/os-release; then apt-get install -y software-properties-common && add-apt-repository -y ppa:deadsnakes/ppa && apt-get update; fi; } && apt-get install -y python3 python3-venv python3-dev && curl -sS https://bootstrap.pypa.io/get-pip.py | python3" || return
+        run_task ">>> 准备自动安装 Python 3..." "apt-get update; apt-get install -y curl && apt-get install -y python3 python3-venv python3-dev && curl -sS https://bootstrap.pypa.io/get-pip.py | python3" || return
     else
         echo "[✓] 检测到 Python 3 已安装"
     fi
