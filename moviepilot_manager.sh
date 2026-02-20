@@ -83,6 +83,10 @@ install_mp() {
     BACKEND_PORT=${BACKEND_PORT:-3001}
     
     # 1. 环境检测与自动安装
+    if ! command -v git &> /dev/null; then
+        run_task ">>> 准备自动安装 Git..." "apt-get update && apt-get install -y git" || return
+    fi
+    
     if ! command -v python3 &> /dev/null; then
         run_task ">>> 准备自动安装 Python 3..." "apt-get update; apt-get install -y curl && apt-get install -y python3 python3-venv python3-dev && curl -sS https://bootstrap.pypa.io/get-pip.py | python3" || return
     else
