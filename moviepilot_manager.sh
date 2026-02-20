@@ -78,7 +78,7 @@ install_mp() {
         fi
 
         if [ ! -f "$PY312_DIR/bin/python3" ]; then
-            run_task ">>> 正在下载 Python 3.12 独立运行环境 ($ARCH 版)..." "mkdir -p $PY312_DIR && cd $PY312_DIR && curl -L $PY_URL | tar -xz --strip-components=1" || return 1
+            run_task ">>> 正在下载 Python 3.12 独立运行环境 ($ARCH 版)...\" \"mkdir -p $PY312_DIR && cd $PY312_DIR && curl -L $PY_URL | tar -xz --strip-components=1" || return 1
         fi
         PYTHON_BASE="$PY312_DIR/bin/python3"
         echo "[✓] 已配置 Python 3.12 独立环境"
@@ -123,14 +123,7 @@ EOF
     fi
 
     # 3. 文件整合
-    echo ">>> 正在整合文件..."
-    mkdir -p MoviePilot/app/plugins
-    mkdir -p MoviePilot-Frontend/public/plugin_icon
-    mkdir -p MoviePilot/app/helper
-
-    cp -rf MoviePilot-Plugins/plugins/* MoviePilot/app/plugins/ 2>/dev/null || true
-    cp -rf MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
-    cp -rf MoviePilot-Resources/resources.v2/* MoviePilot/app/helper/ 2>/dev/null || true
+    integrate_files
 
     # 4. 安装依赖
     if [ -d "$INSTALL_DIR/MoviePilot/venv" ]; then
@@ -147,61 +140,12 @@ EOF
     
     run_task ">>> 正在安装后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && ./venv/bin/python3 -m pip install --upgrade pip && ./venv/bin/python3 -m pip install -r requirements.txt" || return 1
 
-    run_task \">>> 正在安装前端依赖并构建静态文件...\" \"cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build\" || return 1
+    run_task ">>> 正在安装前端依赖并构建静态文件..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build" || return 1
+    fix_frontend_esm
 
-    # 修复 service.js 在 ESM 模式下的兼容性问题
-    if [ -f \"$INSTALL_DIR/MoviePilot-Frontend/dist/service.js\" ]; then
-        mv \"$INSTALL_DIR/MoviePilot-Frontend/dist/service.js\" \"$INSTALL_DIR/MoviePilot-Frontend/dist/service.cjs\"
-    fi
-
-    # 5. 创建启动脚本
-    cat > "$INSTALL_DIR/start_all.sh" << 'EOF'
-#!/bin/bash
-source /opt/MoviePilot/mp_config.env
-
-echo "启动 MoviePilot 后端 (监听 $LISTEN_ADDR:$BACKEND_PORT)..."
-cd /opt/MoviePilot/MoviePilot
-export HOST=$LISTEN_ADDR
-export PORT=$BACKEND_PORT
-export WEB_PORT=$BACKEND_PORT
-PYTHONPATH=. ./venv/bin/python3 app/main.py &
-BACKEND_PID=$!
-
-echo \"启动 MoviePilot 前端静态服务 (监听 $LISTEN_ADDR:$FRONTEND_PORT)...\"
-cd /opt/MoviePilot/MoviePilot-Frontend
-export NGINX_PORT=$FRONTEND_PORT
-# 优先使用修复后的 cjs 文件
-if [ -f \"dist/service.cjs\" ]; then
-    node dist/service.cjs &
-else
-    node dist/service.js &
-fi
-FRONTEND_PID=$!
-
-trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" SIGINT SIGTERM
-wait -n
-kill $BACKEND_PID $FRONTEND_PID 2>/dev/null
-exit 1
-EOF
-    chmod +x "$INSTALL_DIR/start_all.sh"
-
-    # 6. 配置 Systemd
-    cat > /etc/systemd/system/$SERVICE_NAME <<EOF
-[Unit]
-Description=MoviePilot (Frontend + Backend)
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/start_all.sh
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
+    # 5. 刷新启动脚本和 Systemd
+    generate_startup_script
+    generate_systemd_service
 
     systemctl daemon-reload
     systemctl enable $SERVICE_NAME
@@ -239,23 +183,101 @@ update_mp() {
         run_task ">>> 拉取资源代码" "cd MoviePilot-Resources && git fetch --all && git remote set-head origin -a && git reset --hard origin/HEAD" || return 1
     fi
 
-    echo ">>> 重新整合插件与资源..."
-    cp -rf MoviePilot-Plugins/plugins/* MoviePilot/app/plugins/ 2>/dev/null || true
-    cp -rf MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
-    cp -rf MoviePilot-Resources/resources.v2/* MoviePilot/app/helper/ 2>/dev/null || true
-
+    integrate_files
+    
     run_task ">>> 更新后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && ./venv/bin/python3 -m pip install -r requirements.txt" || return 1
-    run_task \">>> 更新前端依赖并重新构建...\" \"cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build\" || return 1
+    run_task ">>> 更新前端依赖并重新构建..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build" || return 1
+    fix_frontend_esm
 
-    # 修复 service.js 在 ESM 模式下的兼容性问题
-    if [ -f \"$INSTALL_DIR/MoviePilot-Frontend/dist/service.js\" ]; then
-        mv \"$INSTALL_DIR/MoviePilot-Frontend/dist/service.js\" \"$INSTALL_DIR/MoviePilot-Frontend/dist/service.cjs\"
-    fi
+    # 关键：更新代码后必须重新刷新启动脚本，防止旧的启动逻辑（如 dev 模式）残留在 start_all.sh 中
+    generate_startup_script
+    generate_systemd_service
 
     echo ">>> 重新启动服务..."
-    systemctl start $SERVICE_NAME
+    systemctl daemon-reload
+    systemctl restart $SERVICE_NAME
     echo ">>> 更新完成！"
     sleep 2
+}
+
+integrate_files() {
+    echo ">>> 正在整合插件、图标和资源文件..."
+    mkdir -p "$INSTALL_DIR/MoviePilot/app/plugins"
+    mkdir -p "$INSTALL_DIR/MoviePilot-Frontend/public/plugin_icon"
+    mkdir -p "$INSTALL_DIR/MoviePilot/app/helper"
+
+    cp -rf "$INSTALL_DIR/MoviePilot-Plugins/plugins/"* "$INSTALL_DIR/MoviePilot/app/plugins/" 2>/dev/null || true
+    cp -rf "$INSTALL_DIR/MoviePilot-Plugins/icons/"* "$INSTALL_DIR/MoviePilot-Frontend/public/plugin_icon/" 2>/dev/null || true
+    cp -rf "$INSTALL_DIR/MoviePilot-Resources/resources.v2/"* "$INSTALL_DIR/MoviePilot/app/helper/" 2>/dev/null || true
+}
+
+fix_frontend_esm() {
+    # 修复 service.js 在 ESM 模式下的兼容性问题
+    if [ -f "$INSTALL_DIR/MoviePilot-Frontend/dist/service.js" ]; then
+        echo ">>> 修复前端 CommonJS 兼容性..."
+        mv -f "$INSTALL_DIR/MoviePilot-Frontend/dist/service.js" "$INSTALL_DIR/MoviePilot-Frontend/dist/service.cjs"
+    fi
+}
+
+generate_startup_script() {
+    echo ">>> 正在生成启动脚本 (start_all.sh)..."
+    cat > "$INSTALL_DIR/start_all.sh" << 'EOF'
+#!/bin/bash
+source /opt/MoviePilot/mp_config.env
+
+# 强制注入 HOST 和 PORT 确保覆盖源码默认值
+export HOST=$LISTEN_ADDR
+export PORT=$BACKEND_PORT
+
+echo "启动 MoviePilot 后端 (监听 $LISTEN_ADDR:$BACKEND_PORT)..."
+cd /opt/MoviePilot/MoviePilot
+export WEB_PORT=$BACKEND_PORT
+PYTHONPATH=. ./venv/bin/python3 app/main.py &
+BACKEND_PID=$!
+
+echo "启动 MoviePilot 前端 (监听 $LISTEN_ADDR:$FRONTEND_PORT)..."
+cd /opt/MoviePilot/MoviePilot-Frontend
+export NGINX_PORT=$FRONTEND_PORT
+export VITE_PORT=$FRONTEND_PORT
+
+# 生产模式检测
+if [ -f "dist/service.cjs" ]; then
+    node dist/service.cjs &
+elif [ -f "dist/service.js" ]; then
+    node dist/service.js &
+else
+    echo "[!] 未发现构建好的静态文件，使用开发模式作为备选启动..."
+    # 显式传递 --port 确保覆盖 5173
+    npm run dev -- --host $LISTEN_ADDR --port $FRONTEND_PORT &
+fi
+FRONTEND_PID=$!
+
+trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" SIGINT SIGTERM
+wait -n
+kill $BACKEND_PID $FRONTEND_PID 2>/dev/null
+exit 1
+EOF
+    chmod +x "$INSTALL_DIR/start_all.sh"
+}
+
+generate_systemd_service() {
+    echo ">>> 正在刷新 Systemd 服务配置..."
+    cat > /etc/systemd/system/$SERVICE_NAME <<EOF
+[Unit]
+Description=MoviePilot (Frontend + Backend)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$INSTALL_DIR/start_all.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
 }
 
 uninstall_mp() {
