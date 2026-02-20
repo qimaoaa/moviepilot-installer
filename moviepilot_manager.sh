@@ -158,14 +158,17 @@ EOF
 }
 
 update_mp() {
-    echo ">>> 准备更新 MoviePilot..."
-    if [ ! -d "$INSTALL_DIR" ]; then
-        echo "❌ 未检测到安装目录 $INSTALL_DIR，请先安装！"
+    echo \">>> 准备更新 MoviePilot...\"
+    if [ ! -d \"$INSTALL_DIR\" ] || [ ! -f \"$CONFIG_FILE\" ]; then
+        echo \"❌ 未检测到安装目录或配置文件，请先安装！\"
         sleep 2
         return 1
     fi
 
-    echo ">>> 正在停止服务..."
+    # 加载配置
+    source \"$CONFIG_FILE\"
+
+    echo \">>> 正在停止服务...\"
     systemctl stop $SERVICE_NAME || true
 
     cd "$INSTALL_DIR"
@@ -230,9 +233,10 @@ FRONTEND_PORT=$FRONTEND_PORT
 BACKEND_PORT=$BACKEND_PORT
 EOF
 
-    echo ">>> 配置已保存，正在刷新服务文件..."
+    echo \">>> 配置已保存，正在刷新服务文件...\"
     generate_startup_script
     generate_systemd_service
+    fix_frontend_esm
 
     echo ">>> 正在重启服务以应用新配置..."
     systemctl daemon-reload
@@ -256,9 +260,17 @@ integrate_files() {
 
 fix_frontend_esm() {
     # 修复 service.js 在 ESM 模式下的兼容性问题
-    if [ -f "$INSTALL_DIR/MoviePilot-Frontend/dist/service.js" ]; then
-        echo ">>> 修复前端 CommonJS 兼容性..."
-        mv -f "$INSTALL_DIR/MoviePilot-Frontend/dist/service.js" "$INSTALL_DIR/MoviePilot-Frontend/dist/service.cjs"
+    local JS_FILE=\"$INSTALL_DIR/MoviePilot-Frontend/dist/service.js\"
+    local CJS_FILE=\"$INSTALL_DIR/MoviePilot-Frontend/dist/service.cjs\"
+    
+    if [ -f \"$JS_FILE\" ]; then
+        echo \">>> 修复前端代理配置与 CommonJS 兼容性...\"
+        # 将硬编码的 127.0.0.1 替换为用户定义的监听地址
+        sed -i \"s/'127.0.0.1'/'$LISTEN_ADDR'/g\" \"$JS_FILE\"
+        mv -f \"$JS_FILE\" \"$CJS_FILE\"
+    elif [ -f \"$CJS_FILE\" ]; then
+        # 如果已经是 cjs，也更新一下 IP
+        sed -i \"s/'127.0.0.1'/'$LISTEN_ADDR'/g\" \"$CJS_FILE\"
     fi
 }
 
