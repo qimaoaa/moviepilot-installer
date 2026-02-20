@@ -10,6 +10,41 @@ INSTALL_DIR="/opt/MoviePilot"
 SERVICE_NAME="moviepilot.service"
 CONFIG_FILE="$INSTALL_DIR/mp_config.env"
 
+# 通用的执行并检测错误的函数
+# 用法: run_task "提示信息" "要执行的命令"
+run_task() {
+    local msg="$1"
+    local cmd="$2"
+    
+    while true; do
+        echo -e "\n$msg"
+        if eval "$cmd"; then
+            return 0
+        else
+            echo "❌ 任务执行失败！"
+            read -p "按 [R] 重新尝试，或按 [M] 返回主菜单退出当前操作: " action
+            case "$action" in
+                [rR])
+                    echo ">>> 正在重试..."
+                    ;;
+                [mM])
+                    echo ">>> 返回主菜单..."
+                    sleep 1
+                    show_menu
+                    # show_menu 内部有死循环或退出机制，但这里为了安全起见退出当前函数并中断上一层
+                    return 1
+                    ;;
+                *)
+                    echo "无效输入，默认返回主菜单..."
+                    sleep 1
+                    show_menu
+                    return 1
+                    ;;
+            esac
+        fi
+    done
+}
+
 show_menu() {
     echo "=============================================="
     echo "       MoviePilot 管理脚本 (单服务版)"
@@ -50,23 +85,9 @@ install_mp() {
     
     # 1. 环境检测与自动安装
     if ! command -v python3.12 &> /dev/null; then
-        echo "[!] 未检测到 Python 3.12，准备自动安装..."
-        if command -v apt-get &> /dev/null; then
-            # 允许 apt-get update 失败时不退出（例如存在失效的光盘源）
-            apt-get update || true
-            apt-get install -y software-properties-common curl
-            
-            if grep -qi "ubuntu" /etc/os-release; then
-                add-apt-repository -y ppa:deadsnakes/ppa || true
-                apt-get update || true
-            fi
-            
-            apt-get install -y python3.12 python3.12-venv python3.12-dev
-            curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
-        else
-            echo "❌ 你的系统不是 Ubuntu/Debian，无法自动安装 Python 3.12，请手动安装后重试！"
-            exit 1
-        fi
+        run_task ">>> 准备自动安装 Python 3.12..." "apt-get update; apt-get install -y software-properties-common curl && { if grep -qi 'ubuntu' /etc/os-release; then add-apt-repository -y ppa:deadsnakes/ppa; apt-get update; fi; } && apt-get install -y python3.12 python3.12-venv python3.12-dev && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12" || return
+    else
+        echo "[✓] 检测到 Python 3.12 已安装"
     fi
 
     NODE_INSTALLED=false
@@ -78,16 +99,9 @@ install_mp() {
     fi
 
     if [ "$NODE_INSTALLED" = false ]; then
-        echo "[!] 未检测到 Node.js v20，准备自动安装..."
-        if command -v apt-get &> /dev/null; then
-            apt-get remove -y nodejs npm || true
-            curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-            apt-get install -y nodejs
-            npm install -g yarn
-        else
-            echo "❌ 你的系统不是 Ubuntu/Debian，无法自动安装 Node.js！"
-            exit 1
-        fi
+        run_task ">>> 准备自动安装 Node.js v20..." "apt-get remove -y nodejs npm || true; curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && npm install -g yarn" || return
+    else
+        echo "[✓] 检测到 Node.js v20 已安装"
     fi
 
     # 2. 克隆源代码
@@ -101,9 +115,9 @@ FRONTEND_PORT=$FRONTEND_PORT
 BACKEND_PORT=$BACKEND_PORT
 EOF
 
-    [ ! -d "MoviePilot" ] && git clone https://github.com/jxxghp/MoviePilot.git
-    [ ! -d "MoviePilot-Plugins" ] && git clone https://github.com/jxxghp/MoviePilot-Plugins.git
-    [ ! -d "MoviePilot-Frontend" ] && git clone https://github.com/jxxghp/MoviePilot-Frontend.git
+    [ ! -d "MoviePilot" ] && run_task ">>> 克隆主项目 MoviePilot..." "git clone https://github.com/jxxghp/MoviePilot.git" || return
+    [ ! -d "MoviePilot-Plugins" ] && run_task ">>> 克隆插件项目 MoviePilot-Plugins..." "git clone https://github.com/jxxghp/MoviePilot-Plugins.git" || return
+    [ ! -d "MoviePilot-Frontend" ] && run_task ">>> 克隆前端项目 MoviePilot-Frontend..." "git clone https://github.com/jxxghp/MoviePilot-Frontend.git" || return
 
     # 3. 文件整合
     echo ">>> 正在整合文件..."
@@ -116,18 +130,13 @@ EOF
     cp -rn MoviePilot-Plugins/resources/* MoviePilot/app/helper/ 2>/dev/null || true
 
     # 4. 安装依赖
-    echo ">>> 正在安装后端依赖..."
-    cd "$INSTALL_DIR/MoviePilot"
-    python3.12 -m pip install -r requirements.txt
+    run_task ">>> 正在安装后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && python3.12 -m pip install -r requirements.txt" || return
 
-    echo ">>> 正在安装前端依赖..."
-    cd "$INSTALL_DIR/MoviePilot-Frontend"
-    npm install
+    run_task ">>> 正在安装前端依赖..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install" || return
 
     # 5. 创建启动脚本
     cat > "$INSTALL_DIR/start_all.sh" << 'EOF'
 #!/bin/bash
-set +e
 source /opt/MoviePilot/mp_config.env
 
 echo "启动 MoviePilot 后端 (监听 $LISTEN_ADDR:$BACKEND_PORT)..."
@@ -196,22 +205,18 @@ update_mp() {
     cd "$INSTALL_DIR"
     
     echo ">>> 拉取最新代码..."
-    [ -d "MoviePilot" ] && cd MoviePilot && git pull && cd ..
-    [ -d "MoviePilot-Plugins" ] && cd MoviePilot-Plugins && git pull && cd ..
-    [ -d "MoviePilot-Frontend" ] && cd MoviePilot-Frontend && git pull && cd ..
+    [ -d "MoviePilot" ] && run_task ">>> 拉取后端代码" "cd MoviePilot && git pull" || return
+    [ -d "MoviePilot-Plugins" ] && run_task ">>> 拉取插件代码" "cd MoviePilot-Plugins && git pull" || return
+    [ -d "MoviePilot-Frontend" ] && run_task ">>> 拉取前端代码" "cd MoviePilot-Frontend && git pull" || return
 
     echo ">>> 重新整合插件与资源..."
     cp -ru MoviePilot-Plugins/plugins/* MoviePilot/app/plugins/ 2>/dev/null || true
     cp -ru MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
     cp -ru MoviePilot-Plugins/resources/* MoviePilot/app/helper/ 2>/dev/null || true
 
-    echo ">>> 更新后端依赖..."
-    cd "$INSTALL_DIR/MoviePilot"
-    python3.12 -m pip install -r requirements.txt
+    run_task ">>> 更新后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && python3.12 -m pip install -r requirements.txt" || return
 
-    echo ">>> 更新前端依赖..."
-    cd "$INSTALL_DIR/MoviePilot-Frontend"
-    npm install
+    run_task ">>> 更新前端依赖..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install" || return
 
     echo ">>> 重新启动服务..."
     systemctl start $SERVICE_NAME
