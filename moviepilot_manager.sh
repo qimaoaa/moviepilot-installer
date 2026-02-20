@@ -53,8 +53,7 @@ install_mp() {
     if ! command -v python3.12 &> /dev/null; then
         echo "[!] 未检测到 Python 3.12，准备自动安装..."
         if command -v apt-get &> /dev/null; then
-            # 注释掉 CD-ROM 源避免 Debian 下报错导致脚本退出
-            sed -i 's/^deb cdrom:/#deb cdrom:/g' /etc/apt/sources.list
+            # 允许 apt-get update 失败时不退出（例如存在失效的光盘源）
             apt-get update || true
             apt-get install -y software-properties-common curl
             
