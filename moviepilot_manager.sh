@@ -78,7 +78,7 @@ install_mp() {
         fi
 
         if [ ! -f "$PY312_DIR/bin/python3" ]; then
-            run_task ">>> 正在下载 Python 3.12 独立运行环境 ($ARCH 版)...\" \"mkdir -p $PY312_DIR && cd $PY312_DIR && curl -L $PY_URL | tar -xz --strip-components=1" || return 1
+            run_task ">>> 正在下载 Python 3.12 独立运行环境 ($ARCH 版)..." "mkdir -p $PY312_DIR && cd $PY312_DIR && curl -L $PY_URL | tar -xz --strip-components=1" || return 1
         fi
         PYTHON_BASE="$PY312_DIR/bin/python3"
         echo "[✓] 已配置 Python 3.12 独立环境"
