@@ -139,7 +139,7 @@ EOF
     cp -rn MoviePilot-Plugins/resources/* MoviePilot/app/helper/ 2>/dev/null || true
 
     # 4. 安装依赖
-    run_task ">>> 正在安装后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && python3 -m pip install -r requirements.txt" || return
+    run_task ">>> 正在安装后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && python3 -m pip install -r requirements.txt --break-system-packages" || return
 
     run_task ">>> 正在安装前端依赖..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install" || return
 
@@ -229,7 +229,7 @@ update_mp() {
     cp -ru MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
     cp -ru MoviePilot-Plugins/resources/* MoviePilot/app/helper/ 2>/dev/null || true
 
-    run_task ">>> 更新后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && python3 -m pip install -r requirements.txt" || return
+    run_task ">>> 更新后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && python3 -m pip install -r requirements.txt --break-system-packages" || return
 
     run_task ">>> 更新前端依赖..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install" || return
 
