@@ -84,10 +84,10 @@ install_mp() {
     BACKEND_PORT=${BACKEND_PORT:-3001}
     
     # 1. 环境检测与自动安装
-    if ! command -v python3.12 &> /dev/null; then
-        run_task ">>> 准备自动安装 Python 3.12..." "apt-get update; apt-get install -y curl && { if grep -qi 'ubuntu' /etc/os-release; then apt-get install -y software-properties-common && add-apt-repository -y ppa:deadsnakes/ppa && apt-get update; fi; } && apt-get install -y python3.12 python3.12-venv python3.12-dev && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12" || return
+    if ! command -v python3 &> /dev/null; then
+        run_task ">>> 准备自动安装 Python 3..." "apt-get update; apt-get install -y curl && { if grep -qi 'ubuntu' /etc/os-release; then apt-get install -y software-properties-common && add-apt-repository -y ppa:deadsnakes/ppa && apt-get update; fi; } && apt-get install -y python3 python3-venv python3-dev && curl -sS https://bootstrap.pypa.io/get-pip.py | python3" || return
     else
-        echo "[✓] 检测到 Python 3.12 已安装"
+        echo "[✓] 检测到 Python 3 已安装"
     fi
 
     NODE_INSTALLED=false
@@ -130,7 +130,7 @@ EOF
     cp -rn MoviePilot-Plugins/resources/* MoviePilot/app/helper/ 2>/dev/null || true
 
     # 4. 安装依赖
-    run_task ">>> 正在安装后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && python3.12 -m pip install -r requirements.txt" || return
+    run_task ">>> 正在安装后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && python3 -m pip install -r requirements.txt" || return
 
     run_task ">>> 正在安装前端依赖..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install" || return
 
@@ -144,7 +144,7 @@ cd /opt/MoviePilot/MoviePilot
 export HOST=$LISTEN_ADDR
 export PORT=$BACKEND_PORT
 export WEB_PORT=$BACKEND_PORT
-PYTHONPATH=. python3.12 app/main.py &
+PYTHONPATH=. python3 app/main.py &
 BACKEND_PID=$!
 
 echo "启动 MoviePilot 前端 (监听 $LISTEN_ADDR:$FRONTEND_PORT)..."
@@ -214,7 +214,7 @@ update_mp() {
     cp -ru MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
     cp -ru MoviePilot-Plugins/resources/* MoviePilot/app/helper/ 2>/dev/null || true
 
-    run_task ">>> 更新后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && python3.12 -m pip install -r requirements.txt" || return
+    run_task ">>> 更新后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && python3 -m pip install -r requirements.txt" || return
 
     run_task ">>> 更新前端依赖..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install" || return
 
