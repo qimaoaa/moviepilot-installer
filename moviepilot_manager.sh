@@ -137,7 +137,7 @@ cd /opt/MoviePilot/MoviePilot-Frontend
 export HOST=$LISTEN_ADDR
 export PORT=$FRONTEND_PORT
 export VITE_PORT=$FRONTEND_PORT
-npm run dev -- --host $LISTEN_ADDR --port $FRONTEND_PORT &
+npm run dev &
 FRONTEND_PID=$!
 
 trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" SIGINT SIGTERM
