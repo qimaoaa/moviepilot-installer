@@ -281,10 +281,39 @@ logs_mp() {
 }
 
 restart_mp() {
-    echo ">>> 正在重启服务..."
+    echo \">>> 正在重启服务...\"
     systemctl restart $SERVICE_NAME
-    echo ">>> 重启成功！"
+    echo \">>> 重启成功！\"
     sleep 2
+}
+
+diagnose_mp() {
+    echo \"\\n>>> 正在进行系统诊断...\"
+    echo \"----------------------------------------------\"
+    echo \"1. 检查服务运行状态:\"
+    systemctl is-active $SERVICE_NAME
+    
+    echo \"\\n2. 检查端口监听情况 (需要 net-tools 或 iproute2):\"
+    if command -v ss &> /dev/null; then
+        ss -tulpn | grep -E 'python|node|vite'
+    elif command -v netstat &> /dev/null; then
+        netstat -tulpn | grep -E 'python|node|vite'
+    else
+        echo \"未找到 ss 或 netstat 命令，请安装以查看端口占占用。\"
+    fi
+
+    echo \"\\n3. 检查 Python 虚拟环境:\"
+    if [ -f \"$INSTALL_DIR/MoviePilot/venv/bin/python\" ]; then
+        \"$INSTALL_DIR/MoviePilot/venv/bin/python\" --version
+    else
+        echo \"❌ 虚拟环境不存在！\"
+    fi
+
+    echo \"\\n4. 最近 20 条关键日志:\"
+    journalctl -u $SERVICE_NAME -n 20 --no-pager
+    
+    echo \"----------------------------------------------\"
+    read -p \"诊断结束，按回车键返回菜单...\"
 }
 
 # 菜单主循环
@@ -297,11 +326,12 @@ while true; do
     echo "  2. 更新 MoviePilot"
     echo "  3. 卸载 MoviePilot"
     echo "  4. 查看运行状态"
-    echo "  5. 查看实时日志"
-    echo "  6. 重启服务"
-    echo "  0. 退出"
-    echo "=============================================="
-    read -p "请输入选项 [0-6]: " choice
+    echo \"  5. 查看实时日志\"
+    echo \"  6. 重启服务\"
+    echo \"  7. 系统诊断 (检查端口和环境)\"
+    echo \"  0. 退出\"
+    echo \"==============================================\"
+    read -p \"请输入选项 [0-7]: \" choice
     case $choice in
         1) install_mp ;;
         2) update_mp ;;
@@ -309,7 +339,8 @@ while true; do
         4) status_mp ;;
         5) logs_mp ;;
         6) restart_mp ;;
+        7) diagnose_mp ;;
         0) exit 0 ;;
-        *) echo "无效选项!" && sleep 1 ;;
+        *) echo \"无效选项!\" && sleep 1 ;;
     esac
 done
