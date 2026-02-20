@@ -159,11 +159,14 @@ EOF
 
 update_mp() {
     echo ">>> 准备更新 MoviePilot..."
-    if [ ! -d "$INSTALL_DIR" ]; then
-        echo "❌ 未检测到安装目录 $INSTALL_DIR，请先安装！"
+    if [ ! -d "$INSTALL_DIR" ] || [ ! -f "$CONFIG_FILE" ]; then
+        echo "❌ 未检测到安装目录或配置文件，请先安装！"
         sleep 2
         return 1
     fi
+
+    # 加载配置
+    source "$CONFIG_FILE"
 
     echo ">>> 正在停止服务..."
     systemctl stop $SERVICE_NAME || true
@@ -189,7 +192,7 @@ update_mp() {
     run_task ">>> 更新前端依赖并重新构建..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build" || return 1
     fix_frontend_esm
 
-    # 关键：更新代码后必须重新刷新启动脚本，防止旧的启动逻辑（如 dev 模式）残留在 start_all.sh 中
+    # 关键：更新代码后必须重新刷新启动脚本，防止旧的启动逻辑残留
     generate_startup_script
     generate_systemd_service
 
@@ -233,6 +236,7 @@ EOF
     echo ">>> 配置已保存，正在刷新服务文件..."
     generate_startup_script
     generate_systemd_service
+    fix_frontend_esm
 
     echo ">>> 正在重启服务以应用新配置..."
     systemctl daemon-reload
@@ -256,26 +260,26 @@ integrate_files() {
 
 fix_frontend_esm() {
     # 修复 service.js 在 ESM 模式下的兼容性问题，并强制其遵循监听地址
-    local JS_FILE=\"$INSTALL_DIR/MoviePilot-Frontend/dist/service.js\"
-    local CJS_FILE=\"$INSTALL_DIR/MoviePilot-Frontend/dist/service.cjs\"
-    local TARGET_FILE=\"\"
+    local JS_FILE="$INSTALL_DIR/MoviePilot-Frontend/dist/service.js"
+    local CJS_FILE="$INSTALL_DIR/MoviePilot-Frontend/dist/service.cjs"
+    local TARGET_FILE=""
 
-    if [ -f \"$JS_FILE\" ]; then
-        TARGET_FILE=\"$JS_FILE\"
-    elif [ -f \"$CJS_FILE\" ]; then
-        TARGET_FILE=\"$CJS_FILE\"
+    if [ -f "$JS_FILE" ]; then
+        TARGET_FILE="$JS_FILE"
+    elif [ -f "$CJS_FILE" ]; then
+        TARGET_FILE="$CJS_FILE"
     fi
 
-    if [ -n \"$TARGET_FILE\" ]; then
-        echo \">>> 正在加固前端监听逻辑...\"
+    if [ -n "$TARGET_FILE" ]; then
+        echo ">>> 正在加固前端监听逻辑..."
         # 1. 允许通过环境变量 HOST 控制监听地址
-        sed -i \"s/const port = process.env.NGINX_PORT || 3000/const port = process.env.NGINX_PORT || 3000; const host = process.env.HOST || '0.0.0.0'/g\" \"$TARGET_FILE\"
+        sed -i "s/const port = process.env.NGINX_PORT || 3000/const port = process.env.NGINX_PORT || 3000; const host = process.env.HOST || '0.0.0.0'/g" "$TARGET_FILE"
         # 2. 修改 listen 调用，显式传入 host 参数
-        sed -i \"s/app.listen(port, ()/app.listen(port, host, ()/g\" \"$TARGET_FILE\"
+        sed -i "s/app.listen(port, ()/app.listen(port, host, ()/g" "$TARGET_FILE"
         
         # 如果是原文件，执行改名
-        if [ \"$TARGET_FILE\" == \"$JS_FILE\" ]; then
-            mv -f \"$JS_FILE\" \"$CJS_FILE\"
+        if [ "$TARGET_FILE" == "$JS_FILE" ]; then
+            mv -f "$JS_FILE" "$CJS_FILE"
         fi
     fi
 }
@@ -302,7 +306,10 @@ BACKEND_PID=$!
 # 等待后端端口就绪，最多等待 30 秒
 echo "正在等待后端服务启动..."
 for i in {1..30}; do
-    if ss -tulpn | grep -q "$INTERNAL_BACKEND_IP:$BACKEND_PORT"; then
+    if command -v ss &> /dev/null && ss -tulpn | grep -q "$INTERNAL_BACKEND_IP:$BACKEND_PORT"; then
+        echo "后端已就绪！"
+        break
+    elif command -v netstat &> /dev/null && netstat -tulpn | grep -q "$INTERNAL_BACKEND_IP:$BACKEND_PORT"; then
         echo "后端已就绪！"
         break
     fi
