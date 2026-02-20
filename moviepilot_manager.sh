@@ -268,31 +268,45 @@ generate_startup_script() {
 #!/bin/bash
 source /opt/MoviePilot/mp_config.env
 
-# 后端启动 - 强制绑定 127.0.0.1，仅供本地前端代理访问
-echo "启动 MoviePilot 后端 (监听 127.0.0.1:$BACKEND_PORT)..."
+# 定义后端内部通信地址
+INTERNAL_BACKEND_IP="127.0.0.1"
+
+# 1. 启动后端 - 显式指定监听 127.0.0.1
+echo "启动 MoviePilot 后端 (监听 $INTERNAL_BACKEND_IP:$BACKEND_PORT)..."
 cd /opt/MoviePilot/MoviePilot
-export HOST=127.0.0.1
+# 注入后端所需环境变量
+export HOST=$INTERNAL_BACKEND_IP
 export PORT=$BACKEND_PORT
 export WEB_PORT=$BACKEND_PORT
 PYTHONPATH=. ./venv/bin/python3 app/main.py &
 BACKEND_PID=$!
 
-# 前端启动 - 绑定用户定义的监听地址，供外部访问
+# 等待后端端口就绪，最多等待 30 秒
+echo "正在等待后端服务启动..."
+for i in {1..30}; do
+    if ss -tulpn | grep -q "$INTERNAL_BACKEND_IP:$BACKEND_PORT"; then
+        echo "后端已就绪！"
+        break
+    fi
+    sleep 1
+done
+
+# 2. 启动前端 - 监听用户定义的地址
 echo "启动 MoviePilot 前端 (监听 $LISTEN_ADDR:$FRONTEND_PORT)..."
 cd /opt/MoviePilot/MoviePilot-Frontend
+# 注入前端所需环境变量
 export HOST=$LISTEN_ADDR
 export NGINX_PORT=$FRONTEND_PORT
-export PORT=$FRONTEND_PORT
 export VITE_PORT=$FRONTEND_PORT
+# 强制让 Node 代理连接到后端定义的内部端口
+export PORT=$BACKEND_PORT
 
-# 生产模式检测
 if [ -f "dist/service.cjs" ]; then
     node dist/service.cjs &
 elif [ -f "dist/service.js" ]; then
     node dist/service.js &
 else
-    echo "[!] 未发现构建好的静态文件，使用开发模式作为备选启动..."
-    # 显式传递 --port 确保覆盖 5173
+    echo "[!] 未发现构建好的静态文件，使用开发模式启动..."
     npm run dev -- --host $LISTEN_ADDR --port $FRONTEND_PORT &
 fi
 FRONTEND_PID=$!
