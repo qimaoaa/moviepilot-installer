@@ -108,7 +108,7 @@ EOF
     mkdir -p MoviePilot-Frontend/public/plugin_icon
     mkdir -p MoviePilot/app/helper
 
-    cp -rf MoviePilot-Plugins/plugins/* MoviePilot/app/plugins/ 2>/dev/null || true
+    cp -rf MoviePilot-Plugins/plugins.v2/* MoviePilot/app/plugins/ 2>/dev/null || true
     cp -rf MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
     cp -rf MoviePilot-Resources/resources.v2/* MoviePilot/app/helper/ 2>/dev/null || true
 
@@ -206,7 +206,7 @@ update_mp() {
     fi
 
     echo ">>> 重新整合插件与资源..."
-    cp -rf MoviePilot-Plugins/plugins/* MoviePilot/app/plugins/ 2>/dev/null || true
+    cp -rf MoviePilot-Plugins/plugins.v2/* MoviePilot/app/plugins/ 2>/dev/null || true
     cp -rf MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
     cp -rf MoviePilot-Resources/resources.v2/* MoviePilot/app/helper/ 2>/dev/null || true
 
