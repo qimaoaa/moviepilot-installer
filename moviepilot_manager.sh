@@ -133,7 +133,6 @@ EOF
     cp -rf MoviePilot-Resources/resources.v2/* MoviePilot/app/helper/ 2>/dev/null || true
 
     # 4. 安装依赖
-    # 检查现有的 venv 是否是 3.12
     if [ -d "$INSTALL_DIR/MoviePilot/venv" ]; then
         local CURRENT_VENV_VER=$("$INSTALL_DIR/MoviePilot/venv/bin/python" --version 2>&1 | grep -oE '3\.[0-9]+')
         if [ "$CURRENT_VENV_VER" != "3.12" ]; then
@@ -148,7 +147,7 @@ EOF
     
     run_task ">>> 正在安装后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && ./venv/bin/python3 -m pip install --upgrade pip && ./venv/bin/python3 -m pip install -r requirements.txt" || return 1
 
-    run_task ">>> 正在安装前端依赖..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install" || return 1
+    run_task ">>> 正在安装前端依赖并构建静态文件..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build" || return 1
 
     # 5. 创建启动脚本
     cat > "$INSTALL_DIR/start_all.sh" << 'EOF'
@@ -163,12 +162,10 @@ export WEB_PORT=$BACKEND_PORT
 PYTHONPATH=. ./venv/bin/python3 app/main.py &
 BACKEND_PID=$!
 
-echo "启动 MoviePilot 前端 (监听 $LISTEN_ADDR:$FRONTEND_PORT)..."
+echo "启动 MoviePilot 前端静态服务 (监听 $LISTEN_ADDR:$FRONTEND_PORT)..."
 cd /opt/MoviePilot/MoviePilot-Frontend
-export HOST=$LISTEN_ADDR
-export PORT=$FRONTEND_PORT
-export VITE_PORT=$FRONTEND_PORT
-npm run dev &
+export NGINX_PORT=$FRONTEND_PORT
+node dist/service.js &
 FRONTEND_PID=$!
 
 trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" SIGINT SIGTERM
@@ -198,12 +195,11 @@ EOF
 
     systemctl daemon-reload
     systemctl enable $SERVICE_NAME
-    systemctl start $SERVICE_NAME
+    systemctl restart $SERVICE_NAME
 
     echo ">>> 安装完成！服务已启动。"
     echo ">>> 后端: http://$LISTEN_ADDR:$BACKEND_PORT"
     echo ">>> 前端: http://$LISTEN_ADDR:$FRONTEND_PORT"
-    echo ">>> 请注意：确保防火墙已放行对应端口！"
     sleep 3
 }
 
@@ -239,7 +235,7 @@ update_mp() {
     cp -rf MoviePilot-Resources/resources.v2/* MoviePilot/app/helper/ 2>/dev/null || true
 
     run_task ">>> 更新后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && ./venv/bin/python3 -m pip install -r requirements.txt" || return 1
-    run_task ">>> 更新前端依赖..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install" || return 1
+    run_task ">>> 更新前端依赖并重新构建..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build" || return 1
 
     echo ">>> 重新启动服务..."
     systemctl start $SERVICE_NAME
@@ -281,39 +277,37 @@ logs_mp() {
 }
 
 restart_mp() {
-    echo \">>> 正在重启服务...\"
+    echo ">>> 正在重启服务..."
     systemctl restart $SERVICE_NAME
-    echo \">>> 重启成功！\"
+    echo ">>> 重启成功！"
     sleep 2
 }
 
 diagnose_mp() {
-    echo \"\\n>>> 正在进行系统诊断...\"
-    echo \"----------------------------------------------\"
-    echo \"1. 检查服务运行状态:\"
+    echo -e "\n>>> 正在进行系统诊断..."
+    echo "----------------------------------------------"
+    echo "1. 检查服务运行状态:"
     systemctl is-active $SERVICE_NAME
     
-    echo \"\\n2. 检查端口监听情况 (需要 net-tools 或 iproute2):\"
+    echo -e "\n2. 检查端口监听情况:"
     if command -v ss &> /dev/null; then
         ss -tulpn | grep -E 'python|node|vite'
     elif command -v netstat &> /dev/null; then
         netstat -tulpn | grep -E 'python|node|vite'
-    else
-        echo \"未找到 ss 或 netstat 命令，请安装以查看端口占占用。\"
     fi
 
-    echo \"\\n3. 检查 Python 虚拟环境:\"
-    if [ -f \"$INSTALL_DIR/MoviePilot/venv/bin/python\" ]; then
-        \"$INSTALL_DIR/MoviePilot/venv/bin/python\" --version
+    echo -e "\n3. 检查 Python 虚拟环境:"
+    if [ -f "$INSTALL_DIR/MoviePilot/venv/bin/python" ]; then
+        "$INSTALL_DIR/MoviePilot/venv/bin/python" --version
     else
-        echo \"❌ 虚拟环境不存在！\"
+        echo "❌ 虚拟环境不存在！"
     fi
 
-    echo \"\\n4. 最近 20 条关键日志:\"
+    echo -e "\n4. 最近 20 条关键日志:"
     journalctl -u $SERVICE_NAME -n 20 --no-pager
     
-    echo \"----------------------------------------------\"
-    read -p \"诊断结束，按回车键返回菜单...\"
+    echo "----------------------------------------------"
+    read -p "诊断结束，按回车键返回菜单..."
 }
 
 # 菜单主循环
@@ -326,12 +320,12 @@ while true; do
     echo "  2. 更新 MoviePilot"
     echo "  3. 卸载 MoviePilot"
     echo "  4. 查看运行状态"
-    echo \"  5. 查看实时日志\"
-    echo \"  6. 重启服务\"
-    echo \"  7. 系统诊断 (检查端口和环境)\"
-    echo \"  0. 退出\"
-    echo \"==============================================\"
-    read -p \"请输入选项 [0-7]: \" choice
+    echo "  5. 查看实时日志"
+    echo "  6. 重启服务"
+    echo "  7. 系统诊断 (检查端口和环境)"
+    echo "  0. 退出"
+    echo "=============================================="
+    read -p "请输入选项 [0-7]: " choice
     case $choice in
         1) install_mp ;;
         2) update_mp ;;
@@ -341,6 +335,6 @@ while true; do
         6) restart_mp ;;
         7) diagnose_mp ;;
         0) exit 0 ;;
-        *) echo \"无效选项!\" && sleep 1 ;;
+        *) echo "无效选项!" && sleep 1 ;;
     esac
 done
