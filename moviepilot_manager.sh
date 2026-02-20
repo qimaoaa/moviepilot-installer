@@ -118,9 +118,15 @@ FRONTEND_PORT=$FRONTEND_PORT
 BACKEND_PORT=$BACKEND_PORT
 EOF
 
-    [ ! -d "MoviePilot" ] && run_task ">>> 克隆主项目 MoviePilot..." "git clone https://github.com/jxxghp/MoviePilot.git" || return
-    [ ! -d "MoviePilot-Plugins" ] && run_task ">>> 克隆插件项目 MoviePilot-Plugins..." "git clone https://github.com/jxxghp/MoviePilot-Plugins.git" || return
-    [ ! -d "MoviePilot-Frontend" ] && run_task ">>> 克隆前端项目 MoviePilot-Frontend..." "git clone https://github.com/jxxghp/MoviePilot-Frontend.git" || return
+    if [ ! -d "MoviePilot" ]; then
+        run_task ">>> 克隆主项目 MoviePilot..." "git clone https://github.com/jxxghp/MoviePilot.git" || return
+    fi
+    if [ ! -d "MoviePilot-Plugins" ]; then
+        run_task ">>> 克隆插件项目 MoviePilot-Plugins..." "git clone https://github.com/jxxghp/MoviePilot-Plugins.git" || return
+    fi
+    if [ ! -d "MoviePilot-Frontend" ]; then
+        run_task ">>> 克隆前端项目 MoviePilot-Frontend..." "git clone https://github.com/jxxghp/MoviePilot-Frontend.git" || return
+    fi
 
     # 3. 文件整合
     echo ">>> 正在整合文件..."
@@ -208,9 +214,15 @@ update_mp() {
     cd "$INSTALL_DIR"
     
     echo ">>> 拉取最新代码..."
-    [ -d "MoviePilot" ] && run_task ">>> 拉取后端代码" "cd MoviePilot && git pull" || return
-    [ -d "MoviePilot-Plugins" ] && run_task ">>> 拉取插件代码" "cd MoviePilot-Plugins && git pull" || return
-    [ -d "MoviePilot-Frontend" ] && run_task ">>> 拉取前端代码" "cd MoviePilot-Frontend && git pull" || return
+    if [ -d "MoviePilot" ]; then
+        run_task ">>> 拉取后端代码" "cd MoviePilot && git pull" || return
+    fi
+    if [ -d "MoviePilot-Plugins" ]; then
+        run_task ">>> 拉取插件代码" "cd MoviePilot-Plugins && git pull" || return
+    fi
+    if [ -d "MoviePilot-Frontend" ]; then
+        run_task ">>> 拉取前端代码" "cd MoviePilot-Frontend && git pull" || return
+    fi
 
     echo ">>> 重新整合插件与资源..."
     cp -ru MoviePilot-Plugins/plugins/* MoviePilot/app/plugins/ 2>/dev/null || true
