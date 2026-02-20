@@ -105,9 +105,9 @@ EOF
     mkdir -p MoviePilot-Frontend/public/plugin_icon
     mkdir -p MoviePilot/app/helper
 
-    cp -rn MoviePilot-Plugins/plugins/* MoviePilot/app/plugins/ 2>/dev/null || true
-    cp -rn MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
-    cp -rn MoviePilot-Plugins/resources/* MoviePilot/app/helper/ 2>/dev/null || true
+    cp -rf MoviePilot-Plugins/plugins/* MoviePilot/app/plugins/ 2>/dev/null || true
+    cp -rf MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
+    cp -rf MoviePilot-Plugins/resources/* MoviePilot/app/helper/ 2>/dev/null || true
 
     # 4. 安装依赖
     if [ ! -d "$INSTALL_DIR/MoviePilot/venv" ]; then
@@ -200,9 +200,9 @@ update_mp() {
     fi
 
     echo ">>> 重新整合插件与资源..."
-    cp -ru MoviePilot-Plugins/plugins/* MoviePilot/app/plugins/ 2>/dev/null || true
-    cp -ru MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
-    cp -ru MoviePilot-Plugins/resources/* MoviePilot/app/helper/ 2>/dev/null || true
+    cp -rf MoviePilot-Plugins/plugins/* MoviePilot/app/plugins/ 2>/dev/null || true
+    cp -rf MoviePilot-Plugins/icons/* MoviePilot-Frontend/public/plugin_icon/ 2>/dev/null || true
+    cp -rf MoviePilot-Plugins/resources/* MoviePilot/app/helper/ 2>/dev/null || true
 
     run_task ">>> 更新后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && ./venv/bin/python3 -m pip install -r requirements.txt" || return 1
     run_task ">>> 更新前端依赖..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install" || return 1
