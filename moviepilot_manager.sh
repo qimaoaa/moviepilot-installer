@@ -147,7 +147,12 @@ EOF
     
     run_task ">>> 正在安装后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && ./venv/bin/python3 -m pip install --upgrade pip && ./venv/bin/python3 -m pip install -r requirements.txt" || return 1
 
-    run_task ">>> 正在安装前端依赖并构建静态文件..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build" || return 1
+    run_task \">>> 正在安装前端依赖并构建静态文件...\" \"cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build\" || return 1
+
+    # 修复 service.js 在 ESM 模式下的兼容性问题
+    if [ -f \"$INSTALL_DIR/MoviePilot-Frontend/dist/service.js\" ]; then
+        mv \"$INSTALL_DIR/MoviePilot-Frontend/dist/service.js\" \"$INSTALL_DIR/MoviePilot-Frontend/dist/service.cjs\"
+    fi
 
     # 5. 创建启动脚本
     cat > "$INSTALL_DIR/start_all.sh" << 'EOF'
@@ -162,10 +167,15 @@ export WEB_PORT=$BACKEND_PORT
 PYTHONPATH=. ./venv/bin/python3 app/main.py &
 BACKEND_PID=$!
 
-echo "启动 MoviePilot 前端静态服务 (监听 $LISTEN_ADDR:$FRONTEND_PORT)..."
+echo \"启动 MoviePilot 前端静态服务 (监听 $LISTEN_ADDR:$FRONTEND_PORT)...\"
 cd /opt/MoviePilot/MoviePilot-Frontend
 export NGINX_PORT=$FRONTEND_PORT
-node dist/service.js &
+# 优先使用修复后的 cjs 文件
+if [ -f \"dist/service.cjs\" ]; then
+    node dist/service.cjs &
+else
+    node dist/service.js &
+fi
 FRONTEND_PID=$!
 
 trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" SIGINT SIGTERM
@@ -235,7 +245,12 @@ update_mp() {
     cp -rf MoviePilot-Resources/resources.v2/* MoviePilot/app/helper/ 2>/dev/null || true
 
     run_task ">>> 更新后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && ./venv/bin/python3 -m pip install -r requirements.txt" || return 1
-    run_task ">>> 更新前端依赖并重新构建..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build" || return 1
+    run_task \">>> 更新前端依赖并重新构建...\" \"cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build\" || return 1
+
+    # 修复 service.js 在 ESM 模式下的兼容性问题
+    if [ -f \"$INSTALL_DIR/MoviePilot-Frontend/dist/service.js\" ]; then
+        mv \"$INSTALL_DIR/MoviePilot-Frontend/dist/service.js\" \"$INSTALL_DIR/MoviePilot-Frontend/dist/service.cjs\"
+    fi
 
     echo ">>> 重新启动服务..."
     systemctl start $SERVICE_NAME
