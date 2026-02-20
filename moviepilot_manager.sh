@@ -268,19 +268,21 @@ generate_startup_script() {
 #!/bin/bash
 source /opt/MoviePilot/mp_config.env
 
-# 强制注入 HOST 和 PORT 确保覆盖源码默认值
-export HOST=$LISTEN_ADDR
-export PORT=$BACKEND_PORT
-
-echo "启动 MoviePilot 后端 (监听 $LISTEN_ADDR:$BACKEND_PORT)..."
+# 后端启动 - 强制绑定 127.0.0.1，仅供本地前端代理访问
+echo "启动 MoviePilot 后端 (监听 127.0.0.1:$BACKEND_PORT)..."
 cd /opt/MoviePilot/MoviePilot
+export HOST=127.0.0.1
+export PORT=$BACKEND_PORT
 export WEB_PORT=$BACKEND_PORT
 PYTHONPATH=. ./venv/bin/python3 app/main.py &
 BACKEND_PID=$!
 
+# 前端启动 - 绑定用户定义的监听地址，供外部访问
 echo "启动 MoviePilot 前端 (监听 $LISTEN_ADDR:$FRONTEND_PORT)..."
 cd /opt/MoviePilot/MoviePilot-Frontend
+export HOST=$LISTEN_ADDR
 export NGINX_PORT=$FRONTEND_PORT
+export PORT=$FRONTEND_PORT
 export VITE_PORT=$FRONTEND_PORT
 
 # 生产模式检测
