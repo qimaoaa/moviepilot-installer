@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 
 # 需要 root 权限
 if [ "$EUID" -ne 0 ]; then
