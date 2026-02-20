@@ -87,10 +87,10 @@ install_mp() {
         run_task ">>> 准备自动安装 Git..." "apt-get update && apt-get install -y git" || return
     fi
     
-    if ! command -v python3 &> /dev/null; then
-        run_task ">>> 准备自动安装 Python 3..." "apt-get update; apt-get install -y curl && apt-get install -y python3 python3-venv python3-dev && curl -sS https://bootstrap.pypa.io/get-pip.py | python3" || return
+    if ! python3 -m pip --version &> /dev/null; then
+        run_task ">>> 准备自动补全 Python 3 和 pip..." "apt-get update && apt-get install -y curl python3 python3-venv python3-dev python3-pip" || return
     else
-        echo "[✓] 检测到 Python 3 已安装"
+        echo "[✓] 检测到 Python 3 和 pip 已安装"
     fi
 
     NODE_INSTALLED=false
