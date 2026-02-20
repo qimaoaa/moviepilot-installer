@@ -85,7 +85,7 @@ install_mp() {
     
     # 1. 环境检测与自动安装
     if ! command -v python3.12 &> /dev/null; then
-        run_task ">>> 准备自动安装 Python 3.12..." "apt-get update; apt-get install -y software-properties-common curl && { if grep -qi 'ubuntu' /etc/os-release; then add-apt-repository -y ppa:deadsnakes/ppa; apt-get update; fi; } && apt-get install -y python3.12 python3.12-venv python3.12-dev && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12" || return
+        run_task ">>> 准备自动安装 Python 3.12..." "apt-get update; apt-get install -y curl && { if grep -qi 'ubuntu' /etc/os-release; then apt-get install -y software-properties-common && add-apt-repository -y ppa:deadsnakes/ppa && apt-get update; fi; } && apt-get install -y python3.12 python3.12-venv python3.12-dev && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12" || return
     else
         echo "[✓] 检测到 Python 3.12 已安装"
     fi
