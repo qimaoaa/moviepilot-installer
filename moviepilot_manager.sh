@@ -53,11 +53,17 @@ install_mp() {
     if ! command -v python3.12 &> /dev/null; then
         echo "[!] 未检测到 Python 3.12，准备自动安装..."
         if command -v apt-get &> /dev/null; then
-            apt-get update
-            apt-get install -y software-properties-common
-            add-apt-repository -y ppa:deadsnakes/ppa
-            apt-get update
-            apt-get install -y python3.12 python3.12-venv python3.12-dev curl
+            # 注释掉 CD-ROM 源避免 Debian 下报错导致脚本退出
+            sed -i 's/^deb cdrom:/#deb cdrom:/g' /etc/apt/sources.list
+            apt-get update || true
+            apt-get install -y software-properties-common curl
+            
+            if grep -qi "ubuntu" /etc/os-release; then
+                add-apt-repository -y ppa:deadsnakes/ppa || true
+                apt-get update || true
+            fi
+            
+            apt-get install -y python3.12 python3.12-venv python3.12-dev
             curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
         else
             echo "❌ 你的系统不是 Ubuntu/Debian，无法自动安装 Python 3.12，请手动安装后重试！"
