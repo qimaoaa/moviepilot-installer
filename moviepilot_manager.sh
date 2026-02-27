@@ -6,9 +6,174 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+LOCK_FILE="/tmp/moviepilot_manager.lock"
+if command -v flock >/dev/null 2>&1; then
+    if ! exec 9>"$LOCK_FILE"; then
+        echo "❌ 无法创建锁文件: $LOCK_FILE"
+        exit 1
+    fi
+    if ! flock -n 9; then
+        echo "❌ 检测到另一个 moviepilot_manager.sh 实例正在运行，请稍后重试。"
+        exit 1
+    fi
+fi
+
 INSTALL_DIR="/opt/MoviePilot"
 SERVICE_NAME="moviepilot.service"
-CONFIG_FILE="$INSTALL_DIR/mp_config.env"
+CONFIG_DIR="/etc/moviepilot"
+CONFIG_FILE="$CONFIG_DIR/mp_config.env"
+APP_CONFIG_DIR="/opt/MoviePilot/MoviePilot/config"
+APP_CONFIG_FILE="$APP_CONFIG_DIR/mp_config.env"
+APP_DATA_DIR="/etc/moviepilot/config"
+LEGACY_CONFIG_FILE="$INSTALL_DIR/mp_config.env"
+
+is_valid_ipv4() {
+    local ip="$1"
+    if [[ ! "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        return 1
+    fi
+    local IFS='.'
+    local octet
+    for octet in $ip; do
+        if ((octet < 0 || octet > 255)); then
+            return 1
+        fi
+    done
+    return 0
+}
+
+is_valid_port() {
+    local port="$1"
+    [[ "$port" =~ ^[0-9]{1,5}$ ]] || return 1
+    ((port >= 1 && port <= 65535))
+}
+
+validate_runtime_config() {
+    if ! is_valid_ipv4 "$LISTEN_ADDR"; then
+        echo "❌ 监听地址无效: $LISTEN_ADDR（仅支持 IPv4）"
+        return 1
+    fi
+    if ! is_valid_port "$FRONTEND_PORT"; then
+        echo "❌ 前端端口无效: $FRONTEND_PORT"
+        return 1
+    fi
+    if ! is_valid_port "$BACKEND_PORT"; then
+        echo "❌ 后端端口无效: $BACKEND_PORT"
+        return 1
+    fi
+    return 0
+}
+
+validate_app_data_dir() {
+    APP_DATA_DIR=${APP_DATA_DIR:-/etc/moviepilot/config}
+    if [[ "$APP_DATA_DIR" != /* ]]; then
+        echo "❌ 配置目录必须是绝对路径: $APP_DATA_DIR"
+        return 1
+    fi
+    if [ "$APP_DATA_DIR" = "/" ]; then
+        echo "❌ 配置目录不能是根目录 /"
+        return 1
+    fi
+    if ! mkdir -p "$APP_DATA_DIR"; then
+        echo "❌ 无法创建配置目录: $APP_DATA_DIR"
+        return 1
+    fi
+    if [ ! -w "$APP_DATA_DIR" ]; then
+        echo "❌ 配置目录不可写: $APP_DATA_DIR"
+        return 1
+    fi
+    return 0
+}
+
+load_config_file() {
+    mkdir -p "$CONFIG_DIR"
+    if [ ! -f "$CONFIG_FILE" ]; then
+        if [ -f "$APP_CONFIG_FILE" ]; then
+            echo ">>> 检测到旧配置，正在迁移到 $CONFIG_FILE"
+            mv -f "$APP_CONFIG_FILE" "$CONFIG_FILE"
+        elif [ -f "$LEGACY_CONFIG_FILE" ]; then
+            echo ">>> 检测到旧配置，正在迁移到 $CONFIG_FILE"
+            mv -f "$LEGACY_CONFIG_FILE" "$CONFIG_FILE"
+        else
+            echo "❌ 未找到配置文件: $CONFIG_FILE"
+            return 1
+        fi
+    fi
+
+    LISTEN_ADDR=""
+    FRONTEND_PORT=""
+    BACKEND_PORT=""
+    APP_DATA_DIR=""
+
+    while IFS='=' read -r key value; do
+        case "$key" in
+            LISTEN_ADDR|FRONTEND_PORT|BACKEND_PORT|APP_DATA_DIR)
+                printf -v "$key" '%s' "$value"
+                ;;
+        esac
+    done < <(grep -E '^(LISTEN_ADDR|FRONTEND_PORT|BACKEND_PORT|APP_DATA_DIR)=' "$CONFIG_FILE")
+
+    if [ -z "$LISTEN_ADDR" ] || [ -z "$FRONTEND_PORT" ] || [ -z "$BACKEND_PORT" ]; then
+        echo "❌ 配置文件缺少必要字段（LISTEN_ADDR/FRONTEND_PORT/BACKEND_PORT）"
+        return 1
+    fi
+
+    APP_DATA_DIR=${APP_DATA_DIR:-/etc/moviepilot/config}
+    validate_runtime_config || return 1
+    validate_app_data_dir
+}
+
+save_config_file() {
+    mkdir -p "$CONFIG_DIR"
+    APP_DATA_DIR=${APP_DATA_DIR:-/etc/moviepilot/config}
+    cat > "$CONFIG_FILE" <<EOF
+LISTEN_ADDR=$LISTEN_ADDR
+FRONTEND_PORT=$FRONTEND_PORT
+BACKEND_PORT=$BACKEND_PORT
+APP_DATA_DIR=$APP_DATA_DIR
+EOF
+}
+
+migrate_app_config_dir() {
+    mkdir -p "$CONFIG_DIR"
+    validate_app_data_dir || return 1
+
+    if [ -L "$APP_CONFIG_DIR" ]; then
+        local OLD_TARGET
+        OLD_TARGET=$(readlink -f "$APP_CONFIG_DIR" 2>/dev/null || true)
+        if ! mkdir -p "$APP_DATA_DIR"; then
+            echo "❌ 无法创建配置目录: $APP_DATA_DIR"
+            return 1
+        fi
+        if [ -n "$OLD_TARGET" ] && [ "$OLD_TARGET" != "$APP_DATA_DIR" ] && [ -d "$OLD_TARGET" ]; then
+            if ! cp -a "$OLD_TARGET"/. "$APP_DATA_DIR"/; then
+                echo "❌ 配置目录迁移失败: $OLD_TARGET -> $APP_DATA_DIR"
+                return 1
+            fi
+        fi
+        ln -sfn "$APP_DATA_DIR" "$APP_CONFIG_DIR"
+        return 0
+    fi
+
+    if [ -d "$APP_CONFIG_DIR" ]; then
+        if ! mkdir -p "$APP_DATA_DIR"; then
+            echo "❌ 无法创建配置目录: $APP_DATA_DIR"
+            return 1
+        fi
+        if ! cp -a "$APP_CONFIG_DIR"/. "$APP_DATA_DIR"/; then
+            echo "❌ 配置目录迁移失败: $APP_CONFIG_DIR -> $APP_DATA_DIR"
+            return 1
+        fi
+        rm -rf "$APP_CONFIG_DIR"
+    else
+        if ! mkdir -p "$APP_DATA_DIR"; then
+            echo "❌ 无法创建配置目录: $APP_DATA_DIR"
+            return 1
+        fi
+    fi
+
+    ln -sfn "$APP_DATA_DIR" "$APP_CONFIG_DIR"
+}
 
 # 通用的执行并检测错误的函数
 run_task() {
@@ -17,7 +182,7 @@ run_task() {
     
     while true; do
         echo -e "\n$msg"
-        if eval "$cmd"; then
+        if bash -o pipefail -c "$cmd"; then
             return 0
         else
             echo "❌ 任务执行失败！"
@@ -52,6 +217,10 @@ install_mp() {
     
     read -p "请输入后端服务端口 (默认 3001): " BACKEND_PORT
     BACKEND_PORT=${BACKEND_PORT:-3001}
+    read -p "请输入配置目录 (默认 /etc/moviepilot/config): " NEW_APP_DATA_DIR
+    APP_DATA_DIR=${NEW_APP_DATA_DIR:-$APP_DATA_DIR}
+    validate_runtime_config || return 1
+    validate_app_data_dir || return 1
     
     # 1. 环境检测与自动安装
     if ! command -v git &> /dev/null; then
@@ -68,6 +237,7 @@ install_mp() {
         local PY312_DIR="$INSTALL_DIR/python312_bin"
         local ARCH=$(uname -m)
         local PY_URL=""
+        local PY_RELEASE_TAG="20250212"
         if [ "$ARCH" == "x86_64" ]; then
             PY_URL="https://github.com/indygreg/python-build-standalone/releases/download/20250212/cpython-3.12.9+20250212-x86_64-unknown-linux-gnu-install_only.tar.gz"
         elif [ "$ARCH" == "aarch64" ]; then
@@ -78,7 +248,7 @@ install_mp() {
         fi
 
         if [ ! -f "$PY312_DIR/bin/python3" ]; then
-            run_task ">>> 正在下载 Python 3.12 独立运行环境 ($ARCH 版)..." "mkdir -p $PY312_DIR && cd $PY312_DIR && curl -L $PY_URL | tar -xz --strip-components=1" || return 1
+            run_task ">>> 正在下载并校验 Python 3.12 独立运行环境 ($ARCH 版)..." "mkdir -p '$PY312_DIR' && cd '$PY312_DIR' && curl -fL '$PY_URL' -o python312.tar.gz && curl -fL 'https://github.com/indygreg/python-build-standalone/releases/download/$PY_RELEASE_TAG/SHA256SUMS' -o SHA256SUMS && grep '$(basename "$PY_URL")' SHA256SUMS > python312.tar.gz.sha256 && sed -i 's|  .*|  python312.tar.gz|' python312.tar.gz.sha256 && sha256sum -c python312.tar.gz.sha256 && tar -xzf python312.tar.gz --strip-components=1 && rm -f python312.tar.gz python312.tar.gz.sha256 SHA256SUMS" || return 1
         fi
         PYTHON_BASE="$PY312_DIR/bin/python3"
         echo "[✓] 已配置 Python 3.12 独立环境"
@@ -93,19 +263,14 @@ install_mp() {
     fi
 
     if [ "$NODE_INSTALLED" = false ]; then
-        run_task ">>> 准备自动安装 Node.js v20..." "apt-get remove -y nodejs npm || true; curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && npm install -g yarn" || return 1
+        run_task ">>> 准备自动安装 Node.js v20..." "apt-get remove -y nodejs npm || true; curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && (command -v yarn >/dev/null || npm install -g yarn)" || return 1
     else
         echo "[✓] 检测到 Node.js v20 已安装"
     fi
 
     # 2. 克隆源代码
     mkdir -p "$INSTALL_DIR"
-    
-    cat > "$CONFIG_FILE" <<EOF
-LISTEN_ADDR=$LISTEN_ADDR
-FRONTEND_PORT=$FRONTEND_PORT
-BACKEND_PORT=$BACKEND_PORT
-EOF
+    save_config_file
 
     cd "$INSTALL_DIR"
 
@@ -121,6 +286,8 @@ EOF
     if [ ! -d "MoviePilot-Resources" ]; then
         run_task ">>> 克隆资源项目 MoviePilot-Resources..." "git clone https://github.com/jxxghp/MoviePilot-Resources.git" || return 1
     fi
+
+    migrate_app_config_dir
 
     # 3. 文件整合
     integrate_files
@@ -141,7 +308,7 @@ EOF
     run_task ">>> 正在安装后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && ./venv/bin/python3 -m pip install --upgrade pip && ./venv/bin/python3 -m pip install -r requirements.txt" || return 1
 
     run_task ">>> 正在安装前端依赖并构建静态文件..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build" || return 1
-    fix_frontend_esm
+    fix_frontend_esm || return 1
 
     # 5. 刷新启动脚本和 Systemd
     generate_startup_script
@@ -159,38 +326,48 @@ EOF
 
 update_mp() {
     echo ">>> 准备更新 MoviePilot..."
-    if [ ! -d "$INSTALL_DIR" ] || [ ! -f "$CONFIG_FILE" ]; then
-        echo "❌ 未检测到安装目录或配置文件，请先安装！"
+    if [ ! -d "$INSTALL_DIR" ]; then
+        echo "❌ 未检测到安装目录，请先安装！"
         sleep 2
         return 1
     fi
 
-    # 加载配置
-    source "$CONFIG_FILE"
+    load_config_file || return 1
+    local FORCE_SYNC=false
+    read -p "是否强制覆盖本地修改并重置到远程 HEAD？(y/N): " FORCE_CHOICE
+    case "$FORCE_CHOICE" in
+        [yY]) FORCE_SYNC=true ;;
+    esac
 
     echo ">>> 正在停止服务..."
     systemctl stop $SERVICE_NAME || true
 
     cd "$INSTALL_DIR"
+    local SYNC_CMD="git fetch --all && git remote set-head origin -a && git pull --ff-only"
+    if [ "$FORCE_SYNC" = true ]; then
+        SYNC_CMD="git fetch --all && git remote set-head origin -a && git reset --hard origin/HEAD"
+    fi
     
     if [ -d "MoviePilot" ]; then
-        run_task ">>> 拉取后端代码" "cd MoviePilot && git fetch --all && git remote set-head origin -a && git reset --hard origin/HEAD" || return 1
+        run_task ">>> 拉取后端代码" "cd MoviePilot && $SYNC_CMD" || return 1
     fi
     if [ -d "MoviePilot-Plugins" ]; then
-        run_task ">>> 拉取插件代码" "cd MoviePilot-Plugins && git fetch --all && git remote set-head origin -a && git reset --hard origin/HEAD" || return 1
+        run_task ">>> 拉取插件代码" "cd MoviePilot-Plugins && $SYNC_CMD" || return 1
     fi
     if [ -d "MoviePilot-Frontend" ]; then
-        run_task ">>> 拉取前端代码" "cd MoviePilot-Frontend && git fetch --all && git remote set-head origin -a && git reset --hard origin/HEAD" || return 1
+        run_task ">>> 拉取前端代码" "cd MoviePilot-Frontend && $SYNC_CMD" || return 1
     fi
     if [ -d "MoviePilot-Resources" ]; then
-        run_task ">>> 拉取资源代码" "cd MoviePilot-Resources && git fetch --all && git remote set-head origin -a && git reset --hard origin/HEAD" || return 1
+        run_task ">>> 拉取资源代码" "cd MoviePilot-Resources && $SYNC_CMD" || return 1
     fi
+
+    migrate_app_config_dir
 
     integrate_files
     
     run_task ">>> 更新后端依赖..." "cd '$INSTALL_DIR/MoviePilot' && ./venv/bin/python3 -m pip install -r requirements.txt" || return 1
     run_task ">>> 更新前端依赖并重新构建..." "cd '$INSTALL_DIR/MoviePilot-Frontend' && npm install && npm run build" || return 1
-    fix_frontend_esm
+    fix_frontend_esm || return 1
 
     # 关键：更新代码后必须重新刷新启动脚本，防止旧的启动逻辑残留
     generate_startup_script
@@ -205,14 +382,7 @@ update_mp() {
 
 modify_config() {
     echo ">>> 正在修改 MoviePilot 运行配置..."
-    if [ ! -f "$CONFIG_FILE" ]; then
-        echo "❌ 未找到配置文件 $CONFIG_FILE，请先执行安装！"
-        sleep 2
-        return 1
-    fi
-
-    # 加载当前配置
-    source "$CONFIG_FILE"
+    load_config_file || return 1
 
     echo "当前监听地址: $LISTEN_ADDR"
     read -p "请输入新监听地址 (直接回车保持不变): " NEW_ADDR
@@ -225,18 +395,20 @@ modify_config() {
     echo "当前后端端口: $BACKEND_PORT"
     read -p "请输入新后端端口 (直接回车保持不变): " NEW_BE_PORT
     BACKEND_PORT=${NEW_BE_PORT:-$BACKEND_PORT}
+    echo "当前配置目录: $APP_DATA_DIR"
+    read -p "请输入新配置目录 (直接回车保持不变): " NEW_APP_DATA_DIR
+    APP_DATA_DIR=${NEW_APP_DATA_DIR:-$APP_DATA_DIR}
+    validate_runtime_config || return 1
+    validate_app_data_dir || return 1
 
     # 保存新配置
-    cat > "$CONFIG_FILE" <<EOF
-LISTEN_ADDR=$LISTEN_ADDR
-FRONTEND_PORT=$FRONTEND_PORT
-BACKEND_PORT=$BACKEND_PORT
-EOF
+    save_config_file
+    migrate_app_config_dir
 
     echo ">>> 配置已保存，正在刷新服务文件..."
     generate_startup_script
     generate_systemd_service
-    fix_frontend_esm
+    fix_frontend_esm || return 1
 
     echo ">>> 正在重启服务以应用新配置..."
     systemctl daemon-reload
@@ -270,17 +442,36 @@ fix_frontend_esm() {
         TARGET_FILE="$CJS_FILE"
     fi
 
-    if [ -n "$TARGET_FILE" ]; then
-        echo ">>> 正在加固前端监听逻辑..."
-        # 1. 允许通过环境变量 HOST 控制监听地址
-        sed -i "s/const port = process.env.NGINX_PORT || 3000/const port = process.env.NGINX_PORT || 3000; const host = process.env.HOST || '0.0.0.0'/g" "$TARGET_FILE"
-        # 2. 修改 listen 调用，显式传入 host 参数
-        sed -i "s/app.listen(port, ()/app.listen(port, host, ()/g" "$TARGET_FILE"
-        
-        # 如果是原文件，执行改名
-        if [ "$TARGET_FILE" == "$JS_FILE" ]; then
-            mv -f "$JS_FILE" "$CJS_FILE"
+    if [ -z "$TARGET_FILE" ]; then
+        echo "❌ 未找到前端服务入口文件（dist/service.js 或 dist/service.cjs）"
+        return 1
+    fi
+
+    echo ">>> 正在加固前端监听逻辑..."
+    # 清理重复注入导致的 host 重复声明
+    sed -i "s/; const host = process.env.HOST || '0.0.0.0'; const host = process.env.HOST || '0.0.0.0'/; const host = process.env.HOST || '0.0.0.0'/g" "$TARGET_FILE"
+    # 1. 允许通过环境变量 HOST 控制监听地址（幂等）
+    if ! grep -q "const host = process.env.HOST || '0.0.0.0'" "$TARGET_FILE"; then
+        if grep -q "const port = process.env.NGINX_PORT || 3000" "$TARGET_FILE"; then
+            sed -i "s/const port = process.env.NGINX_PORT || 3000/const port = process.env.NGINX_PORT || 3000; const host = process.env.HOST || '0.0.0.0'/g" "$TARGET_FILE"
+        else
+            echo "❌ 前端监听补丁失败：未找到端口声明锚点。"
+            return 1
         fi
+    fi
+    # 2. 修改 listen 调用，显式传入 host 参数（幂等）
+    if ! grep -q "app.listen(port, host, ()" "$TARGET_FILE"; then
+        if grep -q "app.listen(port, ()" "$TARGET_FILE"; then
+            sed -i "s/app.listen(port, ()/app.listen(port, host, ()/g" "$TARGET_FILE"
+        else
+            echo "❌ 前端监听补丁失败：未找到 listen 锚点。"
+            return 1
+        fi
+    fi
+    
+    # 如果是原文件，执行改名
+    if [ "$TARGET_FILE" == "$JS_FILE" ]; then
+        mv -f "$JS_FILE" "$CJS_FILE"
     fi
 }
 
@@ -288,7 +479,50 @@ generate_startup_script() {
     echo ">>> 正在生成启动脚本 (start_all.sh)..."
     cat > "$INSTALL_DIR/start_all.sh" << 'EOF'
 #!/bin/bash
-source /opt/MoviePilot/mp_config.env
+CONFIG_FILE="/etc/moviepilot/mp_config.env"
+
+is_valid_ipv4() {
+    local ip="$1"
+    if [[ ! "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        return 1
+    fi
+    local IFS='.'
+    local octet
+    for octet in $ip; do
+        if ((octet < 0 || octet > 255)); then
+            return 1
+        fi
+    done
+    return 0
+}
+
+is_valid_port() {
+    local port="$1"
+    [[ "$port" =~ ^[0-9]{1,5}$ ]] || return 1
+    ((port >= 1 && port <= 65535))
+}
+
+load_config_file() {
+    [ -f "$CONFIG_FILE" ] || return 1
+    LISTEN_ADDR=""
+    FRONTEND_PORT=""
+    BACKEND_PORT=""
+    while IFS='=' read -r key value; do
+        case "$key" in
+            LISTEN_ADDR|FRONTEND_PORT|BACKEND_PORT)
+                printf -v "$key" '%s' "$value"
+                ;;
+        esac
+    done < <(grep -E '^(LISTEN_ADDR|FRONTEND_PORT|BACKEND_PORT)=' "$CONFIG_FILE")
+    is_valid_ipv4 "$LISTEN_ADDR" || return 1
+    is_valid_port "$FRONTEND_PORT" || return 1
+    is_valid_port "$BACKEND_PORT" || return 1
+}
+
+if ! load_config_file; then
+    echo "配置读取失败，拒绝启动。"
+    exit 1
+fi
 
 # 定义后端内部通信地址
 INTERNAL_BACKEND_IP="127.0.0.1"
@@ -358,6 +592,16 @@ WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/start_all.sh
 Restart=always
 RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ReadWritePaths=$INSTALL_DIR
+ReadWritePaths=$CONFIG_DIR
 
 [Install]
 WantedBy=multi-user.target
@@ -381,6 +625,13 @@ uninstall_mp() {
 
     echo ">>> 正在删除安装目录..."
     rm -rf "$INSTALL_DIR"
+    read -p "是否删除配置目录 $CONFIG_DIR？(y/N): " remove_cfg
+    if [[ "$remove_cfg" == "y" || "$remove_cfg" == "Y" ]]; then
+        rm -rf "$CONFIG_DIR"
+        echo ">>> 配置目录已删除：$CONFIG_DIR"
+    else
+        echo ">>> 已保留配置目录：$CONFIG_DIR"
+    fi
     
     echo ">>> 卸载完成！"
     sleep 2
